@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Journey Map</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map { height: 600px; }
+        .marker-label {
+            background-color: rgba(255, 255, 255, 0.8);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div class="time-selector">
+    <label for="start-time">Start Time:</label>
+    <input type="time" id="start-time" name="start-time">
+</div>
+
+<div class="time-selector">
+    <label for="end-time">End Time:</label>
+    <input type="time" id="end-time" name="end-time">
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+    var map = L.map('map').setView([6.615066, -58.207886], 14); // Centered around the first point of the route
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    // Function to update map markers and route based on selected time range
+    function updateMap() {
+        var startTime = document.getElementById('start-time').value;
+        var endTime = document.getElementById('end-time').value;
+
+        // Fetch route coordinates from the server
+        fetch('/route_coordinates')
+        .then(function(response) {
+            return response.json();
+        })
+        .then(function(routeCoordinates) {
+            // Convert routeCoordinates JSON to array of time-stamped coordinates
+            var timeStamps = Object.keys(routeCoordinates);
+            var coordinates = timeStamps.map(function(timeStamp) {
+                return { time: timeStamp, coord: routeCoordinates[timeStamp] };
+            });
+
+            var filteredCoordinates = coordinates.filter(function(point) {
+                return point.time >= startTime && point.time <= endTime;
+            });
+
+            // Clear existing markers and route
+            map.eachLayer(function(layer) {
+                if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            // Plot filtered route
+            var filteredRoute = filteredCoordinates.map(function(point) {
+                return point.coord;
+            });
+
+            var coordinatesStr = filteredRoute.map(function(coord) {
+                return coord.join(',');
+            }).join(';');
+
+            fetch('https://router.project-osrm.org/route/v1/driving/' + coordinatesStr + '?geometries=geojson')
+            .then(function(response) {
+                return response.json();
+            })
+            .then(function(data) {
+                // Plotting the route
+                L.geoJSON(data.routes[0].geometry, {
+                    color: 'blue',
+                    weight: 5
+                }).addTo(map);
+            })
+            .catch(function(error) {
+                console.error('Error fetching route:', error);
+            });
+
+            // Add markers for filtered coordinates with time labels
+            filteredCoordinates.forEach(function(point) {
+                var marker = L.marker(point.coord).addTo(map);
+                var timeLabel = L.divIcon({
+                    className: 'marker-label',
+                    html: point.time
+                });
+                marker.bindTooltip(point.time, { permanent: true, direction: 'top', className: 'marker-label' });
+            });
+        })
+        .catch(function(error) {
+            console.error('Error fetching route coordinates:', error);
+        });
+    }
+
+    // Attach event listeners to time selector boxes
+    document.getElementById('start-time').addEventListener('change', updateMap);
+    document.getElementById('end-time').addEventListener('change', updateMap);
+
+    // Initial map setup
+    updateMap();
+</script>
+
+</body>
+</html>
